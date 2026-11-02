@@ -5,6 +5,9 @@ the EOSC EU Node (PSNC OpenStack). This is done **once per project**, not once
 per service. Per-service runbooks (for FFIS: [deployment.md](deployment.md))
 assume this VM already exists.
 
+- Setting up your own service VM behind it: [Part G](#part-g---checklist-for-a-new-service-team).
+- Moving from the current standalone FFIS VM: [Part F](#part-f---cutover-plan-from-the-standalone-ffis-vm).
+
 ## Why
 
 Floating IPs are scarce. Instead of one floating IP per service VM, only the
@@ -28,9 +31,6 @@ Hostnames are under `vm.fedcloud.eu` for now. Moving them to a project
 domain (`<service>.services.eden-fidelis.eu`) is planned separately in
 [project-domain.md](project-domain.md); it only affects the entry VM's nginx
 and certificates, never the service VMs.
-
-The approach was proven on the harvester VM (`eden-mock.vm.fedcloud.eu`, a
-second hostname with its own certificate running next to the harvester).
 
 ## Ownership
 
@@ -123,8 +123,8 @@ can reach it.
 **Network -> Floating IPs -> Allocate IP To Project**, pool
 `PSNC-EXT-PUB1-EDU`, then **Associate Floating IP** on the `eden-entry` row.
 
-If a service VM currently holds the project's only floating IP (as the
-harvester VM did during the trial), see Part F before moving it.
+The project has one floating IP. While the standalone `ffis` VM still holds
+it, follow Part F instead of this step.
 
 First boot:
 
@@ -347,19 +347,143 @@ Ask the service team to delete or repoint the hostname in nsupdate.
 
 ---
 
-## Part F - Moving from the trial setup
+## Part F - Cutover plan (from the standalone FFIS VM)
 
-During the trial the harvester VM held the floating IP and served
-`eden-mock.vm.fedcloud.eu` itself. To move to a dedicated entry VM:
+**Current state (2026-11-02).** The project has one VM, `ffis` (1 vCPU,
+4 GB), holding the project's only floating IP (`62.3.175.206`, which
+`eden-ffis.vm.fedcloud.eu` resolves to). It runs its own nginx, certbot and
+DDNS cron. That standalone setup is retired: the VM is replaced, not
+converted.
 
-1. Build the entry VM (Parts A to C) with a **new** floating IP if the quota
-   allows, so nothing goes down during the move. If it does not, schedule a
-   short outage: disassociate the IP from the harvester VM and associate it
-   with `eden-entry`.
-2. Onboard the harvester as a service (Part D), with its backend on its
-   private IP. Copy its existing certificate setup only if reissuing is a
-   problem; otherwise let certbot issue fresh ones on the entry VM.
-3. Repoint its hostnames with `myip=<entry-floating-IP>` and wait for DNS
-   (TTL is 1 minute).
-4. Remove the floating IP from the harvester VM and move it from its old
-   security group to `eden-service`.
+**Target state.**
+
+| VM           | Network   | Security group  | Floating IP      | Runs                          |
+| ------------ | --------- | --------------- | ---------------- | ----------------------------- |
+| `eden-entry` | `eden-net` | `eden-entry`   | `62.3.175.206`   | nginx, certbot, `jump` account |
+| `ffis`       | `eden-net` | `eden-service` | none             | FFIS in Docker, port 8000     |
+| (next services) | `eden-net` | `eden-service` | none          | see Part G                    |
+
+The floating IP address stays the same throughout, so no hostname has to be
+repointed. FFIS is down only for the switch in F3 (minutes).
+
+### F1. Preparation (no downtime)
+
+1. Open the EGI Helpdesk ticket for `services.eden-fidelis.eu`
+   ([project-domain.md](project-domain.md), step 2). Trust-IT's delegation is
+   live since 2026-10-19, but EGI's name servers still refuse the zone.
+   Nothing below waits for this.
+2. Rename the old instance to `ffis-standalone`
+   (**Instances -> Edit Instance**) so the new one can be called `ffis`.
+3. Create the `eden-entry` and `eden-service` security groups (A2).
+4. Add a **temporary** rule to `eden-entry`: port 22 from security group
+   `ffis-web` (the old VM's group). Delete it in F4.
+
+### F2. Build the new VMs (no downtime)
+
+1. Launch `eden-entry` (A3), **no floating IP**.
+2. Launch the new `ffis` (deployment.md, A5): 2 vCPU / 4 GB, `eden-service`,
+   no floating IP.
+3. Until the switch, the old VM is the way in:
+
+   ```
+   Host eden-old
+       HostName 62.3.175.206
+       User ubuntu
+
+   Host eden-entry-tmp
+       HostName <entry-private-IP>
+       User ubuntu
+       ProxyJump eden-old
+
+   Host eden-ffis-tmp
+       HostName <ffis-private-IP>
+       User ubuntu
+       ProxyJump eden-entry-tmp
+   ```
+
+4. On `eden-entry`: Parts B and C (jump account, nginx, catch-all, certbot
+   install). Install the FFIS site file (D3) but do not request a
+   certificate yet; HTTP-01 cannot reach this VM before it has the IP.
+5. On `ffis`: deployment.md, Part D (Docker, code, `FFIS_BIND_ADDR`). Check
+   from `eden-entry`:
+
+   ```bash
+   curl -s http://<ffis-private-IP>:8000/health
+   ```
+
+### F3. Switch (FFIS down for a few minutes)
+
+1. **Network -> Floating IPs**: disassociate `62.3.175.206` from
+   `ffis-standalone`, associate it with `eden-entry`.
+2. From your laptop, with the normal SSH config (B2): `ssh eden-entry`.
+3. Issue the certificate (D4) and verify from outside (D5).
+
+If something fails here, roll back by moving the IP back to
+`ffis-standalone`; it is untouched.
+
+### F4. Remove the standalone setup
+
+After a few days without problems:
+
+1. Delete the temporary rule from F1.4.
+2. Delete the `ffis-standalone` instance **and its volume**, then the
+   `ffis-web` security group.
+3. Remove `/etc/cron.weekly/ffis-ddns` with it (it goes with the VM). The
+   nsupdate secret stays valid; keep it with the FFIS team.
+
+### F5. Project domain (once EGI has created the zone)
+
+Follow [project-domain.md](project-domain.md) steps 4 to 7:
+register `ffis.services.eden-fidelis.eu`, point it at `62.3.175.206`, add it
+to the FFIS site file and certificate. Only the entry VM changes.
+
+### F6. Open question: the harvester
+
+`eden-harvester.vm.fedcloud.eu` resolves to `62.3.175.110`, which is not this
+project's floating IP, so the harvester VM lives in another OpenStack
+project. Service VMs are only reachable over `eden-net` from inside this
+project. Either:
+
+- **Recommended:** the harvester team rebuilds it in this project as a
+  service VM (Part G), which also frees their floating IP; or
+- the entry VM proxies to the harvester's public address. This works, but
+  the harvester keeps a public IP and the backend traffic leaves the cloud
+  unencrypted unless the harvester also has TLS.
+
+---
+
+## Part G - Checklist for a new service team
+
+For someone who wants their own VM behind the entry VM. Nobody needs their
+own floating IP.
+
+1. **Key and access.** Send the entry VM owner your SSH public key and your
+   current public IPv4 (`curl -4 ifconfig.me`). They add you to the `jump`
+   account and to the `eden-entry` port 22 rules (B1).
+2. **Launch your VM.** Network `eden-net`, security group `eden-service`
+   only, your own key pair, no floating IP. Note the private IP.
+3. **Backend port.** If your service listens on something other than an
+   already allowed port, ask for an `eden-service` rule for it from
+   `eden-entry` (A2). Bind your service to the private IP, not `0.0.0.0` and
+   not loopback.
+4. **SSH config** on your laptop:
+
+   ```
+   Host eden-entry
+       HostName <entry-floating-IP>
+       User jump
+
+   Host eden-<service>
+       HostName <your-private-IP>
+       User ubuntu
+       ProxyJump eden-entry
+   ```
+
+   `ssh eden-<service>` then works. Outbound internet (apt, docker pull)
+   works through the router.
+5. **Hostname.** Register `eden-<service>.vm.fedcloud.eu` in nsupdate and
+   point it at the entry IP with `myip` (D2).
+6. **Site file.** Write an nginx site file for your service, using
+   `deploy/nginx-ffis.conf` as the template (upload limit, timeouts, a
+   `<service>_` prefix on rate limit zones), and send it with the hostname
+   and backend `IP:port` to the entry VM owner (D1).
