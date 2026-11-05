@@ -5,8 +5,8 @@ the EOSC EU Node (PSNC OpenStack). This is done **once per project**, not once
 per service. Per-service runbooks (for FFIS: [deployment.md](deployment.md))
 assume this VM already exists.
 
-- Setting up your own service VM behind it: [Part G](#part-g---checklist-for-a-new-service-team).
-- Moving from the current standalone FFIS VM: [Part F](#part-f---cutover-plan-from-the-standalone-ffis-vm).
+- Setting up your own service VM behind it: [Part G](#part-g---deploying-a-new-service).
+- How the standalone FFIS VM was replaced (done 2026-11-05): [Part F](#part-f---cutover-from-the-standalone-ffis-vm).
 
 ## Why
 
@@ -53,15 +53,20 @@ Conventions on the entry VM:
   (`ffis_identify`, `harvester_...`). They live in the shared `http` context
   and must not collide.
 
-Worked example values:
+Live values (since 2026-11-05):
 
-| Placeholder           | Example value              |
+| Item                  | Value                      |
 | --------------------- | -------------------------- |
-| entry VM name         | `eden-entry`               |
-| entry floating IP     | `62.3.175.x`               |
+| entry VM              | `eden-entry`, `192.168.0.111`, `M1-NET-1vCPU-4R` |
+| entry floating IP     | `62.3.175.206`             |
 | VM login user         | `ubuntu`                   |
-| FFIS private IP       | `192.168.0.20`             |
+| jump user             | `jump`                     |
+| FFIS VM               | `ffis`, `192.168.0.203`, `M1-NET-2vCPU-8R` |
 | FFIS hostname         | `eden-ffis.vm.fedcloud.eu` |
+| Certificate e-mail    | mattias.levlin@csc.fi      |
+
+The runbook sections below still use `192.168.0.20` as the FFIS example IP;
+the live VM is `192.168.0.203`.
 
 ---
 
@@ -87,7 +92,7 @@ traffic rather than CIDRs, so nobody has to track private IPs.
 
 | Port        | Remote                    | Why                                                       |
 | ----------- | ------------------------- | --------------------------------------------------------- |
-| 22 (SSH)    | CIDR `<admin-IP>/32`      | One rule per admin location. Never `0.0.0.0/0`            |
+| 22 (SSH)    | CIDR `<admin-range>`      | One rule per admin location. Never `0.0.0.0/0`. CSC: `193.166.83.240/28` (its outgoing address varies within that range) |
 | 80 (HTTP)   | CIDR `0.0.0.0/0`          | Let's Encrypt HTTP-01 challenges and the 80 -> 443 redirect |
 | 443 (HTTPS) | CIDR `0.0.0.0/0`          | All services                                              |
 
@@ -112,8 +117,9 @@ can reach it.
 
 - Details: name `eden-entry`
 - Source: `Ubuntu 24.04 LTS`, Create New Volume: **Yes**, 20 GB
-- Flavour: 2 vCPU / 2 GB RAM. nginx itself is light, but large uploads (FFIS
-  accepts 100 MB) are buffered through this VM on their way to the backend.
+- Flavour: `M1-NET-1vCPU-4R` (1 vCPU / 4 GB, the smallest available). nginx
+  is light; the RAM covers large uploads (FFIS accepts 100 MB), which are
+  buffered through this VM on their way to the backend.
 - Networks: `eden-net`
 - Security Groups: `eden-entry` (remove `default`)
 - Key Pair: the entry VM owner's
@@ -123,8 +129,8 @@ can reach it.
 **Network -> Floating IPs -> Allocate IP To Project**, pool
 `PSNC-EXT-PUB1-EDU`, then **Associate Floating IP** on the `eden-entry` row.
 
-The project has one floating IP. While the standalone `ffis` VM still holds
-it, follow Part F instead of this step.
+The project has one floating IP (`62.3.175.206`), and it is already on
+`eden-entry`. Only redo this step when rebuilding the entry VM.
 
 First boot:
 
@@ -343,19 +349,23 @@ Ask the service team to delete or repoint the hostname in nsupdate.
 | certbot HTTP-01 fails                   | Hostname does not yet resolve to the entry IP (check `myip`)         |
 | Hostname resolves to an unexpected IP   | nsupdate was called from a service VM without `myip`                 |
 | `ssh -J` fails at the second hop        | `eden-service` lacks port 22 from `eden-entry`, or wrong user/key    |
+| `Too many authentication failures`      | The SSH agent offers many keys; pass `-i <key> -o IdentitiesOnly=yes` |
+| SSH hangs at the first hop              | Your public IP (`curl -4 ifconfig.me`) is not in an `eden-entry` rule |
 | 413 on upload                           | Site file `client_max_body_size` missing or too low                  |
 
 ---
 
-## Part F - Cutover plan (from the standalone FFIS VM)
+## Part F - Cutover from the standalone FFIS VM
 
-**Current state (2026-11-02).** The project has one VM, `ffis` (1 vCPU,
-4 GB), holding the project's only floating IP (`62.3.175.206`, which
-`eden-ffis.vm.fedcloud.eu` resolves to). It runs its own nginx, certbot and
-DDNS cron. That standalone setup is retired: the VM is replaced, not
-converted.
+**Status: switched on 2026-11-05.** F1 to F3 are done. `ffis-standalone` is
+shut off (not deleted) so its DDNS cron cannot repoint the hostname. F4 is
+due around 2026-11-12. Kept here as the record of how it was done.
 
-**Target state.**
+**Before:** one VM, `ffis` (1 vCPU, 4 GB), held the project's only floating
+IP (`62.3.175.206`) and ran its own nginx, certbot and DDNS cron. It was
+renamed `ffis-standalone` and replaced, not converted.
+
+**After:**
 
 | VM           | Network   | Security group  | Floating IP      | Runs                          |
 | ------------ | --------- | --------------- | ---------------- | ----------------------------- |
@@ -452,38 +462,47 @@ project. Either:
 
 ---
 
-## Part G - Checklist for a new service team
+## Part G - Deploying a new service
 
-For someone who wants their own VM behind the entry VM. Nobody needs their
-own floating IP.
+For a team that wants its own service VM behind the entry VM. Nobody needs
+their own floating IP. Steps marked **(owner)** are done by the entry VM
+owner; the rest by the service team.
 
-1. **Key and access.** Send the entry VM owner your SSH public key and your
-   current public IPv4 (`curl -4 ifconfig.me`). They add you to the `jump`
-   account and to the `eden-entry` port 22 rules (B1).
-2. **Launch your VM.** Network `eden-net`, security group `eden-service`
-   only, your own key pair, no floating IP. Note the private IP.
-3. **Backend port.** If your service listens on something other than an
-   already allowed port, ask for an `eden-service` rule for it from
-   `eden-entry` (A2). Bind your service to the private IP, not `0.0.0.0` and
-   not loopback.
-4. **SSH config** on your laptop:
+1. **Project access.** The team needs membership in the EDEN OpenStack
+   project on the EOSC EU Node to launch VMs.
+2. **Send the owner** your SSH **public** key and, if you are outside CSC,
+   your public IPv4 (`curl -4 ifconfig.me`).
+3. **(owner) Grant jump access.** Append the key, with a name in the comment:
 
-   ```
-   Host eden-entry
-       HostName <entry-floating-IP>
-       User jump
-
-   Host eden-<service>
-       HostName <your-private-IP>
-       User ubuntu
-       ProxyJump eden-entry
+   ```bash
+   ssh ubuntu@62.3.175.206
+   echo '<public-key> <name, org>' | sudo tee -a /home/jump/.ssh/authorized_keys
    ```
 
-   `ssh eden-<service>` then works. Outbound internet (apt, docker pull)
-   works through the router.
-5. **Hostname.** Register `eden-<service>.vm.fedcloud.eu` in nsupdate and
-   point it at the entry IP with `myip` (D2).
-6. **Site file.** Write an nginx site file for your service, using
-   `deploy/nginx-ffis.conf` as the template (upload limit, timeouts, a
-   `<service>_` prefix on rate limit zones), and send it with the hostname
-   and backend `IP:port` to the entry VM owner (D1).
+   Add their IP to `eden-entry` as an SSH rule. If the service listens on a
+   port other than 8000, add that port to `eden-service`, remote security
+   group `eden-entry`.
+4. **Launch the VM.** Network `eden-net`, security group `eden-service`
+   only (remove `default`), your own key pair, **no floating IP**. Note the
+   private IP. Bind your service to that IP, not `0.0.0.0` and not loopback.
+5. **Log in** through the entry VM:
+
+   ```bash
+   ssh -J jump@62.3.175.206 ubuntu@<your-private-IP>
+   ```
+
+   Outbound internet (apt, docker pull) works through the router.
+6. **Hostname.** Register it at https://nsupdate.fedcloud.eu/
+   (`eden-<service>.vm.fedcloud.eu`, or `<service>.services.eden-fidelis.eu`
+   once the project domain is live) and point it at the entry VM. `myip` is
+   required; without it the name points at the router:
+
+   ```bash
+   curl "https://<hostname>:<secret>@nsupdate.fedcloud.eu/nic/update?myip=62.3.175.206"
+   ```
+
+7. **Send the owner** the hostname, your backend `IP:port`, and an nginx
+   site file based on `deploy/nginx-ffis.conf` (upload limit, timeouts, a
+   `<service>_` prefix on rate limit zones).
+8. **(owner) Publish it** on `eden-entry`: install the site file (D3), issue
+   the certificate (D4), verify (D5).
