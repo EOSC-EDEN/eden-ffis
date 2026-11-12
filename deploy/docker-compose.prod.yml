@@ -5,7 +5,7 @@
 # the EDEN setup that is the VM's private IP on eden-net, where nginx on the
 # shared entry VM reaches it (eden-infra docs/entry-vm.md). Set it in deploy/.env:
 #
-#   echo "FFIS_BIND_ADDR=192.168.0.20" > deploy/.env
+#   echo "FFIS_BIND_ADDR=192.168.0.203" > deploy/.env
 #   docker compose --env-file deploy/.env -f deploy/docker-compose.prod.yml up -d --build
 #
 # Without FFIS_BIND_ADDR it falls back to loopback, which is safe but

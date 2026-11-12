@@ -1,4 +1,4 @@
-# eosc-ffis
+# eden-ffis
 
 EOSC EDEN File Format Identification Service
 
@@ -181,7 +181,7 @@ All settings are environment variables prefixed `FFIS_`. Copy `.env.example` to 
 
 ## Deployment patterns
 
-For a step-by-step deployment as a public HTTPS service on an EOSC EU Node VM (OpenStack networking, EGI Dynamic DNS hostname, Let's Encrypt), see [docs/deployment.md](docs/deployment.md). The FFIS VM has no public IP; it is published through the EDEN shared entry VM, which runs nginx and certbot for all project services and is set up once per project: [eden-infra](https://github.com/EOSC-EDEN/eden-infra/blob/main/docs/entry-vm.md).
+FFIS runs on a service VM behind the EDEN entry VM, which serves all EDEN hostnames over HTTPS. FFIS deployment: [docs/deployment.md](docs/deployment.md). Entry VM: [eden-infra](https://github.com/EOSC-EDEN/eden-infra/blob/main/docs/entry-vm.md).
 
 ### Standalone container (small TDA)
 

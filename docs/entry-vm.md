@@ -1,8 +1,6 @@
-# EDEN shared entry VM
+# EDEN entry VM
 
-Moved to [eden-infra](https://github.com/EOSC-EDEN/eden-infra/blob/main/docs/entry-vm.md), together with
-[project-domain.md](https://github.com/EOSC-EDEN/eden-infra/blob/main/docs/project-domain.md) and the entry VM's nginx
-catch-all.
+Moved to [eden-infra](https://github.com/EOSC-EDEN/eden-infra/blob/main/docs/entry-vm.md).
 
-- Deploying a new service: [Part G](https://github.com/EOSC-EDEN/eden-infra/blob/main/docs/entry-vm.md#part-g---deploying-a-new-service)
-- Publishing a service on the entry VM: [Part D](https://github.com/EOSC-EDEN/eden-infra/blob/main/docs/entry-vm.md#part-d---onboarding-a-service)
+- Deploying a new service: [Part A](https://github.com/EOSC-EDEN/eden-infra/blob/main/docs/entry-vm.md#part-a---deploying-a-new-service)
+- Publishing a service on the entry VM: [Part B](https://github.com/EOSC-EDEN/eden-infra/blob/main/docs/entry-vm.md#part-b---publishing-a-service)
