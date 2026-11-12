@@ -15,7 +15,7 @@ Internet --443--> entry VM (floating IP, nginx, certbot)
 ```
 
 The entry VM is set up once per project and has its own runbook:
-[entry-vm.md](entry-vm.md). This document covers the FFIS side and what to
+[eden-infra entry-vm.md](https://github.com/EOSC-EDEN/eden-infra/blob/main/docs/entry-vm.md). This document covers the FFIS side and what to
 hand to the entry VM owner.
 
 Worked example throughout:
@@ -51,7 +51,7 @@ Import the public key under **Compute -> Key Pairs -> Import Public Key**, type
 breaks.
 
 Send the same public key to the entry VM owner, together with your current
-IPv4 address, to get jump access (entry-vm.md, Part B). The key never needs to
+IPv4 address, to get jump access (eden-infra entry-vm.md, Part B). The key never needs to
 be copied anywhere else.
 
 ### A2. Network and subnet (once per project)
@@ -84,7 +84,7 @@ Open `eden-router` -> **Interfaces -> Add Interface** -> select `eden-subnet`
 ### A5. Launch the instance
 
 The `eden-service` security group must exist and allow ports 22 and 8000 from
-the `eden-entry` group (entry-vm.md, A2). Do not create a separate
+the `eden-entry` group (eden-infra entry-vm.md, A2). Do not create a separate
 FFIS group with public rules.
 
 **Compute -> Instances -> Launch Instance**
@@ -189,7 +189,7 @@ repeated failures count against Let's Encrypt rate limits.
 ## Part C - Publishing through the entry VM
 
 nginx and certbot run on the entry VM, not on the FFIS VM. If you are not the
-entry VM owner, send them the items below and they follow entry-vm.md,
+entry VM owner, send them the items below and they follow eden-infra entry-vm.md,
 Part D.
 
 | Item                    | Value                                       |
@@ -329,7 +329,7 @@ also how signatures get refreshed. Rebuilding monthly is reasonable for a
 preservation service.
 
 Changes to `deploy/nginx-ffis.conf` do not take effect from `git pull` on the
-FFIS VM. They have to be installed on the entry VM (entry-vm.md, Part E).
+FFIS VM. They have to be installed on the entry VM (eden-infra entry-vm.md, Part E).
 
 ### Logs
 
